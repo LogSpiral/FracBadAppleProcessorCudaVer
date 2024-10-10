@@ -1,7 +1,6 @@
 ﻿#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <opencv2/opencv.hpp>
-#include <opencv2/core/cuda.hpp>
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -9,7 +8,6 @@
 #include <execution>
 #include <sstream>
 #include <string>
-#include "time.h"
 #include <filesystem>
 #include <cmath>
 using namespace cv;
@@ -30,10 +28,6 @@ Mat dataSet;
 Mat fracImage;
 Vec3b black = Vec3b(0, 0, 0);
 Vec3b white = Vec3b(255, 255, 255);
-/*void processorTemplate(int i, int j, Vec3b& color, Mat img)
-{
-
-}*/
 struct Vec3uchar
 {
 	uchar x;
@@ -72,14 +66,6 @@ struct Vec3uchar
 		return Vec3uchar(this->y, this->z, this->x);
 	}
 };
-void processorBlackWhite(Vec3b& color)
-{
-	color = (color[0] + color[1] + color[2]) > 255.0 ? white : black;
-	//auto orig = color;
-	//double value = color[0] / 255.0 + color[1] / 255.0 + color[2] / 255.0;
-	//uchar c = value > 0.33 ? 255 : 0;
-	//color = Vec3b(c, c, c);
-}
 template<typename T>
 __host__ __device__ T clamp(T value, T min, T max)
 {
@@ -94,7 +80,6 @@ int lengthSquared(Vec2i vec)
 Vec3b IntToColor(int p)
 {
 	return Vec3b((uchar)p, (uchar)(p >> 8), (uchar)(p >> 16));
-
 }
 void processorESSEDT(Mat img)
 {
@@ -293,55 +278,6 @@ void processorESSEDT(Mat img)
 	delete[] data;  // 释放整个内存块
 	delete[] deltaS;  // 释放行指针数组
 }
-void processorFractal(double angle, Vec3b& color)
-{
-	int distSqr = color[0] + 255 * (color[1] + 255 * color[2]);//把像素信息转距离信息
-	Vec2d orig = Vec2d(-32 / 9.0, -2.0);//缩放中心
-	//double angle = atan2(i - height * .5, j - width * .5) * 4;
-	Vec2d vec = Vec2d(cos(angle), sin(angle)) * 0.5;
-	angle *= 2;
-	vec -= Vec2d(cos(angle), sin(angle)) * 0.25;
-	vec *= 0.95 + clamp(sqrt(distSqr) / 8000.0, 0.0, 1000.0) * 64.0;
-	vec -= orig;
-	vec *= 270;
-	color = fracImage.at<Vec3b>(clamp((int)vec[1], 0, 1079), clamp((int)vec[0], 0, 1919));
-}
-class PixelOperation_BlackWhite : public cv::ParallelLoopBody {
-public:
-	PixelOperation_BlackWhite(Mat& _img) : img(_img) {}
-
-	void operator()(const cv::Range& range) const {
-		for (int i = range.start; i < range.end; i++) {
-			for (int j = 0; j < img.cols; j++) {
-				processorBlackWhite(img.at<Vec3b>(i, j));
-			}
-			//std::cout << "Processed row " << i << std::endl;
-		}
-	}
-
-private:
-	Mat& img;
-};
-class PixelOperation_Fractal : public cv::ParallelLoopBody {
-public:
-	PixelOperation_Fractal(Mat& _img) : img(_img) {}
-
-	void operator()(const cv::Range& range) const {
-		int width = img.cols;
-		int height = img.rows;
-		for (int i = range.start; i < range.end; i++) {
-			for (int j = 0; j < width; j++) {
-				processorFractal(atan2(i - height * .5, j - width * .5) * 4, img.at<Vec3b>(i, j));
-			}
-			//std::cout << "Processed row " << i << std::endl;
-		}
-	}
-
-private:
-	Mat& img;
-};
-
-
 __global__ void kernel_BlackWhite(Vec3uchar* data, Vec3uchar* dest, int n, uchar standard)
 {
 	int offset = n * blockIdx.x;
@@ -372,7 +308,6 @@ void processImage_BlackWhite(Mat img, Mat dest, int standard)
 	cudaFree(data_dest);
 
 }
-
 __global__ void kernel_Fractal(Vec3uchar* data, Vec3uchar* dest, Vec3uchar* fracImage, int n)
 {
 	int offset = n * blockIdx.x;
@@ -396,8 +331,6 @@ __global__ void kernel_Fractal(Vec3uchar* data, Vec3uchar* dest, Vec3uchar* frac
 		dest[k + offset] = fracImage[clamp((int)coordX, 0, 1919) + 1920 * clamp((int)coordY, 0, 1079)];
 	}
 }
-
-
 void processImage_Fractal(Mat img, Mat dest, Vec3uchar* fracImage)
 {
 	int width = img.cols;
@@ -417,7 +350,6 @@ void processImage_Fractal(Mat img, Mat dest, Vec3uchar* fracImage)
 	cudaFree(data);
 	cudaFree(data_dest);
 }
-
 int main(int argc, char* argv[])
 {
 	if (argc == 1)
