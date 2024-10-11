@@ -28,50 +28,94 @@ Mat dataSet;
 Mat fracImage;
 Vec3b black = Vec3b(0, 0, 0);
 Vec3b white = Vec3b(255, 255, 255);
-struct Vec3uchar
+template <typename T>
+struct Vec3
 {
-	uchar x;
-	uchar y;
-	uchar z;
-	__device__ Vec3uchar(uchar value)
+	T x;
+	T y;
+	T z;
+	__device__ Vec3<T>(T value)
 	{
 		this->x = this->y = this->z = value;
 	}
-	__device__ Vec3uchar(uchar x, uchar y, uchar z)
+	__device__ Vec3<T>(T x, T y, T z)
 	{
 		this->x = x;
 		this->y = y;
 		this->z = z;
 	}
-	__device__ Vec3uchar operator+(const Vec3uchar& rhs) const {
-		return Vec3uchar(x + rhs.x, y + rhs.y, z + rhs.z);
+	__device__ Vec3<T> operator+(const Vec3<T>& rhs) const {
+		return Vec3<T>(x + rhs.x, y + rhs.y, z + rhs.z);
 	}
-	__device__ Vec3uchar operator-(const Vec3uchar& rhs) const {
-		return Vec3uchar(x - rhs.x, y - rhs.y, z - rhs.z);
+	__device__ Vec3<T> operator-(const Vec3<T>& rhs) const {
+		return Vec3<T>(x - rhs.x, y - rhs.y, z - rhs.z);
 	}
-	__device__ Vec3uchar operator*(const Vec3uchar& rhs) const {
-		return Vec3uchar(x * rhs.x, y * rhs.y, z * rhs.z);
+	__device__ Vec3<T> operator*(const Vec3<T>& rhs) const {
+		return Vec3<T>(x * rhs.x, y * rhs.y, z * rhs.z);
 	}
-	__device__ Vec3uchar operator/(const Vec3uchar& rhs) const {
-		return Vec3uchar(x / rhs.x, y / rhs.y, z / rhs.z);
+	__device__ Vec3<T> operator/(const Vec3<T>& rhs) const {
+		return Vec3<T>(x / rhs.x, y / rhs.y, z / rhs.z);
 	}
-	friend __device__  Vec3uchar operator*(const Vec3uchar& p, uchar scalar) {
-		return Vec3uchar(p.x * scalar, p.y * scalar, p.z * scalar);
+	friend __device__  Vec3<T> operator*(const Vec3<T>& p, T scalar) {
+		return Vec3<T>(p.x * scalar, p.y * scalar, p.z * scalar);
 	}
-	friend __device__  Vec3uchar operator/(const Vec3uchar& p, uchar scalar) {
-		return Vec3uchar(p.x / scalar, p.y / scalar, p.z / scalar);
+	friend __device__  Vec3<T> operator/(const Vec3<T>& p, T scalar) {
+		return Vec3<T>(p.x / scalar, p.y / scalar, p.z / scalar);
 	}
-	__device__ Vec3uchar swapElem()
+	__device__ Vec3<T> swapElem()
 	{
-		return Vec3uchar(this->y, this->z, this->x);
+		return Vec3<T>(this->y, this->z, this->x);
 	}
 };
+template <typename T>
+struct Vec2
+{
+	T x;
+	T y;
+	__device__ Vec2<T>(T value)
+	{
+		this->x = this->y = value;
+	}
+	__device__ Vec2<T>(T x, T y)
+	{
+		this->x = x;
+		this->y = y;
+	}
+	__device__ Vec2<T> operator+(const Vec2<T>& rhs) const {
+		return Vec2<T>(x + rhs.x, y + rhs.y);
+	}
+	__device__ Vec2<T> operator-(const Vec2<T>& rhs) const {
+		return Vec2<T>(x - rhs.x, y - rhs.y);
+	}
+	__device__ Vec2<T> operator*(const Vec2<T>& rhs) const {
+		return Vec2<T>(x * rhs.x, y * rhs.y);
+	}
+	__device__ Vec2<T> operator/(const Vec2<T>& rhs) const {
+		return Vec2<T>(x / rhs.x, y / rhs.y);
+	}
+	friend __device__  Vec2<T> operator*(const Vec2<T>& p, T scalar) {
+		return Vec2<T>(p.x * scalar, p.y * scalar);
+	}
+	friend __device__  Vec2<T> operator/(const Vec2<T>& p, T scalar) {
+		return Vec2<T>(p.x / scalar, p.y / scalar;
+	}
+	__device__ Vec2<T> swapElem()
+	{
+		return Vec2<T>(this->y, this->x);
+	}
+};
+#define Vec3uchar Vec3<uchar>
+#define Vec2int Vec2<int>
 template<typename T>
 __host__ __device__ T clamp(T value, T min, T max)
 {
 	if (value > max)return max;
 	if (value < min)return min;
 	return value;
+}
+__device__ int lengthSquared(Vec2int vec)
+{
+	return vec.x * vec.x + vec.y * vec.y;
 }
 int lengthSquared(Vec2i vec)
 {
@@ -81,6 +125,11 @@ Vec3b IntToColor(int p)
 {
 	return Vec3b((uchar)p, (uchar)(p >> 8), (uchar)(p >> 16));
 }
+__device__ Vec3uchar IntToVec3u(int p)
+{
+	return Vec3uchar((uchar)p, (uchar)(p >> 8), (uchar)(p >> 16));
+}
+
 void processorESSEDT(Mat img)
 {
 	//初始化
@@ -278,6 +327,203 @@ void processorESSEDT(Mat img)
 	delete[] data;  // 释放整个内存块
 	delete[] deltaS;  // 释放行指针数组
 }
+__device__ void singleImgESSEDT(Vec3uchar* source, Vec3uchar* target, Vec3uchar* dataImage, int width, int height)
+{
+	Vec2int* data;
+	cudaMalloc((void**)&data, width * height * 2 * sizeof(int));
+	for (int i = 0; i < height; i++)
+	{
+		int ioff = i * width;
+		for (int j = 0; j < width; j++)
+		{
+			data[ioff + j] = (source[j + ioff].x > 20) ? Vec2int(0, 0) : Vec2int(width, height);
+		}
+	}
+
+
+
+	// 第一个像素(左上)
+	{
+		bool flag = true;
+		int counter = 0;//计数器，表示对当前像素查找的次数
+		Vec2int unit = Vec2int(0, 0);
+		while (flag)
+		{
+			int x = counter % scale;
+			int y = counter / scale * 2;
+			Vec3uchar xData = dataSet.at<Vec3uchar>(y, x);//从数据图中获得xy偏移量
+			Vec3uchar yData = dataSet.at<Vec3uchar>(y + 1, x);
+			unit = Vec2int((xData.z * 256 + xData.y) * 256 + xData.x, (yData.z * 256 + yData.y) * 256 + yData.x);//生成偏移向量
+			for (int n = 0; n < 2; n++)
+			{
+				Vec2int _unit = unit;
+				//以下三行对应三个对称操作，由一个偏移向量生成等模长的三个
+				if (n > 0) _unit = Vec2int(_unit.y, _unit.x);
+
+				//查询格点，如果是白色像素就停止(只有两个状态，所以我直接x>0了
+				if (source[clamp(_unit.x, 0, width - 1) + clamp(_unit.y, 0, height - 1) * width].x > 0)
+				{
+					flag = false;//停止当前像素的查找
+					unit = _unit;
+					break;
+				}
+			}
+			counter++;//查询次数自增
+		}
+		data[0] = unit;
+		//deltaS.x.x = unit;
+	}
+	// 上到下扫描
+	for (int i = 0; i < height; i++)
+	{
+		int ioff = i * width;
+		for (int j = 0; j < width; j++)
+		{
+			Vec2int& cur = data[ioff + j];
+			if (cur.x == 0 && cur.y == 0) continue;
+			int length = lengthSquared(cur);
+			if (j != 0)
+			{
+				Vec2int tar = data[ioff + j - 1] + Vec2int(-1, 0);
+				int lengthTar = lengthSquared(tar);
+				if (lengthTar < length)
+				{
+					cur = tar;
+					length = lengthTar;
+				}
+			}
+			if (i != 0)
+			{
+				Vec2int tar = data[ioff + j - width] + Vec2int(0, -1);
+				int lengthTar = lengthSquared(tar);
+				if (lengthTar < length)
+				{
+					cur = tar;
+					length = lengthTar;
+				}
+				if (j != 0)
+				{
+					tar = data[ioff + j - 1 - width] + Vec2int(-1, -1);
+					lengthTar = lengthSquared(tar);
+					if (lengthTar < length)
+					{
+						cur = tar;
+						length = lengthTar;
+					}
+				}
+				if (j != width - 1)
+				{
+					tar = data[ioff + j + 1 - width] + Vec2int(1, -1);
+					lengthTar = lengthSquared(tar);
+					if (lengthTar < length)
+					{
+						cur = tar;
+						length = lengthTar;
+					}
+				}
+			}
+		}
+	}
+
+	// 第一个像素(右下)
+	{
+		bool flag = true;
+		int counter = 0;//计数器，表示对当前像素查找的次数
+		Vec2int unit = Vec2int(0, 0);
+		float dist = 0;
+		while (flag)
+		{
+			int x = counter % scale;
+			int y = counter / scale * 2;
+			Vec3uchar xData = dataSet.at<Vec3uchar>(y, x);//从数据图中获得xy偏移量
+			Vec3uchar yData = dataSet.at<Vec3uchar>(y + 1, x);
+			unit = Vec2int((xData.z * 256 + xData.y) * 256 + xData.x, (yData.z * 256 + yData.y) * 256 + yData.x);//生成偏移向量
+
+			for (int n = 0; n < 2; n++)
+			{
+				Vec2int _unit = unit;
+				//以下三行对应三个对称操作，由一个偏移向量生成等模长的三个
+				if (n > 0) _unit = Vec2int(_unit.y, _unit.x);
+				_unit = _unit * -1;
+				_unit = _unit + Vec2int(width - 1, height - 1);
+
+				//查询格点，如果是白色像素就停止(只有两个状态，所以我直接x>0了
+				if (source[clamp(_unit.x, 0, width - 1) + clamp(_unit.y, 0, height - 1) * width].x > 0)
+				{
+					flag = false;//停止当前像素的查找
+					dist = lengthSquared(unit);//记录该像素到最近白色像素的距离的平方
+					unit = _unit;
+					break;
+				}
+			}
+			counter++;//查询次数自增
+		}
+		Vec2int tar = unit;// -new Vector2(width - 1, height - 1);
+		int index = height * width - 1;
+		if (lengthSquared(tar) < lengthSquared(data[index]))
+			data[index] = tar;
+	}
+	// 下到上扫描
+	for (int i = height - 1; i >= 0; i--)
+	{
+		int ioff = i * width;
+		for (int j = width - 1; j >= 0; j--)
+		{
+			Vec2int& cur = data[ioff + j];
+			if (cur.x == 0 && cur.y == 0) continue;
+			int length = lengthSquared(cur);
+
+			if (j != width - 1)
+			{
+				Vec2int tar = data[ioff + j + 1] + Vec2int(1, 0);
+				int lengthTar = lengthSquared(tar);
+				if (lengthTar < length)
+				{
+					cur = tar;
+					length = lengthTar;
+				}
+
+			}
+			if (i != height - 1)
+			{
+				Vec2int tar = data[ioff + j + width] + Vec2int(0, 1);
+				int lengthTar = lengthSquared(tar);
+				if (lengthTar < length)
+				{
+					cur = tar;
+					length = lengthTar;
+				}
+				if (j != 0)
+				{
+					tar = data[ioff + j + width - 1] + Vec2int(-1, 1);
+					lengthTar = lengthSquared(tar);
+					if (lengthTar < length)
+					{
+						cur = tar;
+						length = lengthTar;
+					}
+				}
+				if (j != width - 1)
+				{
+					tar = data[ioff + j + width + 1] + Vec2int(1, 1);
+					lengthTar = lengthSquared(tar);
+					if (lengthTar < length)
+					{
+						cur = tar;
+						length = lengthTar;
+					}
+				}
+			}
+		}
+	}
+	for (int i = 0; i < height; i++)
+	{
+		int ioff = i * width;
+		for (int j = 0; j < width; j++)
+			target[j + ioff] = IntToVec3u(lengthSquared(data[ioff + j]));//用像素来记录距离信息
+	}
+	cudaFree(data);
+}
 __global__ void kernel_BlackWhite(Vec3uchar* data, Vec3uchar* dest, int n, uchar standard)
 {
 	int offset = n * blockIdx.x;
@@ -308,6 +554,62 @@ void processImage_BlackWhite(Mat img, Mat dest, int standard)
 	cudaFree(data_dest);
 
 }
+
+__global__ void kernel_ESSEDT(Vec3uchar** sources, Vec3uchar** targets, Vec3uchar* dataImage, int* width, int* height)
+{
+	int index = threadIdx.x;
+	singleImgESSEDT(sources[index], targets[index], dataImage, width[index], height[index]);
+}
+void processImage_ESSEDT(Mat* images, Mat* dests, Vec3uchar* dataImage)//固定处理16个文件
+{
+	Vec3uchar** sources;
+	Vec3uchar** targets;
+	int* widthes;
+	int* heights;
+	//选择使用哪个GPU运行
+	//cudaSetDevice(0);
+	auto size = 16 * sizeof(Vec3uchar*);
+	cudaMalloc((void**)&sources, size);
+	cudaMalloc((void**)&targets, size);
+	size = 16 * sizeof(int);
+	cudaMalloc((void**)&widthes, size);
+	cudaMalloc((void**)&heights, size);
+	int* w_host = new int[16];
+	int* h_host = new int[16];
+	for (int n = 0; n < 16; n++)
+	{
+		Mat img = images[n];
+		int width; 
+		int height; 
+		w_host[n] = width = img.cols;
+		h_host[n] = height = img.rows;
+		int _size = 3 * width * height * sizeof(Vec3uchar);
+		cudaMalloc((void**)&(sources[n]), _size);
+		cudaMalloc((void**)&(targets[n]), _size);
+
+		cudaMemcpy(sources[n], img.ptr(0), _size, cudaMemcpyHostToDevice);
+	}
+	cudaMemcpy(widthes, w_host, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(heights, h_host, size, cudaMemcpyHostToDevice);
+	delete[] w_host;
+	delete[] h_host;
+
+	kernel_ESSEDT << <1, 16 >> > (sources, targets, dataImage, widthes, heights);
+	cudaDeviceSynchronize();
+
+	for (int n = 0; n < 16; n++)
+	{
+		int _size = 3 * w_host[n] * h_host[n] * sizeof(Vec3uchar);
+		cudaMemcpy(dests[n].ptr(0), targets[n], _size, cudaMemcpyDeviceToHost);
+		cudaFree(sources[n]);
+		cudaFree(targets[n]);
+	}
+	cudaFree(sources);
+	cudaFree(targets);
+	cudaFree(widthes);
+	cudaFree(heights);
+}
+
 __global__ void kernel_Fractal(Vec3uchar* data, Vec3uchar* dest, Vec3uchar* fracImage, int n)
 {
 	int offset = n * blockIdx.x;
@@ -331,6 +633,7 @@ __global__ void kernel_Fractal(Vec3uchar* data, Vec3uchar* dest, Vec3uchar* frac
 		dest[k + offset] = fracImage[clamp((int)coordX, 0, 1919) + 1920 * clamp((int)coordY, 0, 1079)];
 	}
 }
+
 void processImage_Fractal(Mat img, Mat dest, Vec3uchar* fracImage)
 {
 	int width = img.cols;
@@ -379,10 +682,17 @@ int main(int argc, char* argv[])
 	}
 	int standard_BlackWhite = 0;
 	Vec3uchar* frac;
+	Vec3uchar* dataImage;
 	if (index == 1 || index == 4)
 	{
 		std::cout << "请输入黑白阈值(0-255)\n";
 		std::cin >> standard_BlackWhite;
+	}
+	if (index == 2 || index == 4)
+	{
+		auto size = 4096 * 4096 * 3 * sizeof(uchar);
+		cudaMalloc((void**)&dataImage, size);
+		cudaMemcpy(dataImage, dataSet.ptr(0), size, cudaMemcpyHostToDevice);
 	}
 	if (index == 3 || index == 4)
 	{
@@ -473,6 +783,10 @@ int main(int argc, char* argv[])
 	std::cout << "处理成功，已处理" << counter << "个文件，请查看它们自己目录下的Result_Cuda文件夹\n";
 	std::cout << "结束，";
 	logCurrentTime();
+	if (index == 2 || index == 4)
+	{
+		cudaFree(dataImage);
+	}
 	if (index == 3 || index == 4)
 	{
 		cudaFree(frac);
