@@ -97,7 +97,7 @@ struct Vec2
 		return Vec2<T>(p.x * scalar, p.y * scalar);
 	}
 	friend __device__  Vec2<T> operator/(const Vec2<T>& p, T scalar) {
-		return Vec2<T>(p.x / scalar, p.y / scalar;
+		return Vec2<T>(p.x / scalar, p.y / scalar);
 	}
 	__device__ Vec2<T> swapElem()
 	{
@@ -340,7 +340,7 @@ __device__ void singleImgESSEDT(Vec3uchar* source, Vec3uchar* target, Vec3uchar*
 		}
 	}
 
-
+	int scale = 4096;
 
 	// 第一个像素(左上)
 	{
@@ -351,8 +351,8 @@ __device__ void singleImgESSEDT(Vec3uchar* source, Vec3uchar* target, Vec3uchar*
 		{
 			int x = counter % scale;
 			int y = counter / scale * 2;
-			Vec3uchar xData = dataSet.at<Vec3uchar>(y, x);//从数据图中获得xy偏移量
-			Vec3uchar yData = dataSet.at<Vec3uchar>(y + 1, x);
+			Vec3uchar xData = dataImage[x + 4096 * y];//从数据图中获得xy偏移量
+			Vec3uchar yData = dataImage[x + 4096 * (y + 1)];
 			unit = Vec2int((xData.z * 256 + xData.y) * 256 + xData.x, (yData.z * 256 + yData.y) * 256 + yData.x);//生成偏移向量
 			for (int n = 0; n < 2; n++)
 			{
@@ -435,8 +435,8 @@ __device__ void singleImgESSEDT(Vec3uchar* source, Vec3uchar* target, Vec3uchar*
 		{
 			int x = counter % scale;
 			int y = counter / scale * 2;
-			Vec3uchar xData = dataSet.at<Vec3uchar>(y, x);//从数据图中获得xy偏移量
-			Vec3uchar yData = dataSet.at<Vec3uchar>(y + 1, x);
+			Vec3uchar xData = dataImage[x + 4096 * y];;//从数据图中获得xy偏移量
+			Vec3uchar yData = dataImage[x + 4096 * (y + 1)];;
 			unit = Vec2int((xData.z * 256 + xData.y) * 256 + xData.x, (yData.z * 256 + yData.y) * 256 + yData.x);//生成偏移向量
 
 			for (int n = 0; n < 2; n++)
@@ -560,7 +560,7 @@ __global__ void kernel_ESSEDT(Vec3uchar** sources, Vec3uchar** targets, Vec3ucha
 	int index = threadIdx.x;
 	singleImgESSEDT(sources[index], targets[index], dataImage, width[index], height[index]);
 }
-void processImage_ESSEDT(Mat* images, Mat* dests, Vec3uchar* dataImage)//固定处理16个文件
+void processImage_ESSEDT(Mat* images, Mat* dests, Vec3uchar* dataImage, int count)//最多一次处理16个文件
 {
 	Vec3uchar** sources;
 	Vec3uchar** targets;
@@ -568,19 +568,19 @@ void processImage_ESSEDT(Mat* images, Mat* dests, Vec3uchar* dataImage)//固定�
 	int* heights;
 	//选择使用哪个GPU运行
 	//cudaSetDevice(0);
-	auto size = 16 * sizeof(Vec3uchar*);
+	auto size = count * sizeof(Vec3uchar*);
 	cudaMalloc((void**)&sources, size);
 	cudaMalloc((void**)&targets, size);
-	size = 16 * sizeof(int);
+	size = count * sizeof(int);
 	cudaMalloc((void**)&widthes, size);
 	cudaMalloc((void**)&heights, size);
-	int* w_host = new int[16];
-	int* h_host = new int[16];
-	for (int n = 0; n < 16; n++)
+	int* w_host = new int[count];
+	int* h_host = new int[count];
+	for (int n = 0; n < count; n++)
 	{
 		Mat img = images[n];
-		int width; 
-		int height; 
+		int width;
+		int height;
 		w_host[n] = width = img.cols;
 		h_host[n] = height = img.rows;
 		int _size = 3 * width * height * sizeof(Vec3uchar);
@@ -594,10 +594,10 @@ void processImage_ESSEDT(Mat* images, Mat* dests, Vec3uchar* dataImage)//固定�
 	delete[] w_host;
 	delete[] h_host;
 
-	kernel_ESSEDT << <1, 16 >> > (sources, targets, dataImage, widthes, heights);
+	kernel_ESSEDT << <1, count >> > (sources, targets, dataImage, widthes, heights);
 	cudaDeviceSynchronize();
 
-	for (int n = 0; n < 16; n++)
+	for (int n = 0; n < count; n++)
 	{
 		int _size = 3 * w_host[n] * h_host[n] * sizeof(Vec3uchar);
 		cudaMemcpy(dests[n].ptr(0), targets[n], _size, cudaMemcpyDeviceToHost);
@@ -671,7 +671,7 @@ int main(int argc, char* argv[])
 	std::cout << "2 将 黑白 画面进行距离场处理，计算每个像素到最近的白色像素的距离的平方并且以颜色形式存储\n";
 	std::cout << "3 将 距离场 图进行分形映射处理\n";
 	std::cout << "4 除了裁切以外的一条龙服务，适用于大多数图(图片亮度太低会在1处理成纯黑然后2炸掉)\n";
-	int index;
+	int index = 0;
 	std::cin >> index;
 	if (index < 0 || index > 4)
 	{
@@ -683,6 +683,13 @@ int main(int argc, char* argv[])
 	int standard_BlackWhite = 0;
 	Vec3uchar* frac;
 	Vec3uchar* dataImage;
+	if (index == 0)
+	{
+		std::cout << "我懒得做这个裁切了，这个是因为烂苹果是4：3而那个4k 60帧的是16：9我需要裁切一下才存在的\n";
+		std::cin.get();
+		std::cin.get();
+		return 0;
+	}
 	if (index == 1 || index == 4)
 	{
 		std::cout << "请输入黑白阈值(0-255)\n";
@@ -704,72 +711,71 @@ int main(int argc, char* argv[])
 	logCurrentTime();
 	std::cout << "请耐心等待处理\n";
 	//std::cout << "请耐心等待处理，多于1000张时每处理100张会输出一次进度，否则多于10张时每10张输出一次进度\n";
-	int counter = 0;
-	std::vector<char*> data;
+	int groupCount = (argc + 14) / 16;
+	char*** data = new char** [groupCount];
 
-	char** begin = argv + 1;
-	char** end = argv + argc;
-	std::copy(begin, end, std::back_inserter(data));
+	for (int k = 0; k < groupCount; k++)
+	{
+		int step = ((k == groupCount - 1) ? (argc + 15 - 16 * groupCount) : 16);
+		data[k] = new char* [step];
+		for (int u = 0; u < step; u++)
+			data[k][u] = argv[u + k * 16 + 1];
+	}
 
-	auto processor = [frac, standard_BlackWhite, index, argc, &counter](char* charpath)
+
+	auto processor = [dataImage, frac, standard_BlackWhite, index, argc](char** pathGroup, int num)
 		{
-			/*std::ostringstream ss;
-			ss << path << "," << counter++ << "\n";
-			std::string merged = ss.str();
-			std::cout << merged;*/
-			counter++;
-			int c = counter;
-			Mat img = imread(charpath, IMREAD_COLOR);
-			switch (index)
+			if (index == 1 || index == 3)
 			{
-			case 0:
-				std::cout << "我懒得做这个裁切了，这个是因为烂苹果是4：3而那个4k 60帧的是16：9我需要裁切一下才存在的\n";
-				std::cin.get();
-				std::cin.get();
-				return 0;
-			case 1:
-				processImage_BlackWhite(img, img, standard_BlackWhite);
-				break;
-			case 2:
-				processorESSEDT(img);
-				break;
-			case 3:
-				processImage_Fractal(img, img, frac);
-				break;
-			case 4:
-				processImage_BlackWhite(img, img, standard_BlackWhite);
-				processorESSEDT(img);
-				processImage_Fractal(img, img, frac);
-				break;
-			default:
-				break;
-			}
-			path curpath = path(charpath);
-			path sourceDir = curpath.parent_path();
-			path resultDir = sourceDir / "Result_Cuda";
-			if (!exists(resultDir)) {
-				create_directories(resultDir);
-			}
-			//if (argc > 10 && c % (argc > 1000 ? 100 : 10) == 0)
-			//{
-			//	std::ostringstream ss;
-			//	ss << (c * 100.0 / argc) << "%\n";
-			//	std::string merged = ss.str();
-			//	std::cout << merged;
-			//}
-			imwrite((resultDir / curpath.filename()).string(), img);
+				for (int i = 0; i < num; i++)
+				{
+					char* charpath = pathGroup[i];
+					Mat img = imread(charpath, IMREAD_COLOR);
 
-			//std::ostringstream _ss;
-			//_ss << charpath << "_result.png";
-			//std::string _merged = _ss.str();
-			//imwrite(_merged, img);
+					if (index == 1)
+						processImage_BlackWhite(img, img, standard_BlackWhite);
+					else
+						processImage_Fractal(img, img, frac);
+					path curpath = path(charpath);
+					path sourceDir = curpath.parent_path();
+					path resultDir = sourceDir / "Result_Cuda";
+					if (!exists(resultDir)) {
+						create_directories(resultDir);
+					}
+					imwrite((resultDir / curpath.filename()).string(), img);
+				}
+			}
+			if (index == 2)
+			{
+				Mat* images = new Mat[num];
+				for (int i = 0; i < num; i++)
+				{
+					char* charpath = pathGroup[i];
+					images[i] = imread(charpath, IMREAD_COLOR);
+				}
+				processImage_ESSEDT(images, images, dataImage, num);
+				for (int i = 0; i < num; i++)
+				{
+					char* charpath = pathGroup[i];
+					path curpath = path(charpath);
+					path sourceDir = curpath.parent_path();
+					path resultDir = sourceDir / "Result_Cuda";
+					if (!exists(resultDir)) {
+						create_directories(resultDir);
+					}
+					imwrite((resultDir / curpath.filename()).string(), images[i]);
+				}
+				delete[] images;
+			}
+
+
 		};
 	std::vector<std::thread> threads;
 
 
 	auto start = std::chrono::high_resolution_clock::now();
-	for (int i = 0; i < data.size(); ++i) {
-		threads.emplace_back(processor, data[i]);
+	for (int i = 0; i < groupCount; i++) {
+		threads.emplace_back(processor, data[i], (i == groupCount - 1) ? (argc + 15 - 16 * groupCount) : 16);
 	}
 	// 等待所有线程完成
 	for (auto& thread : threads) {
@@ -780,7 +786,7 @@ int main(int argc, char* argv[])
 	std::cout << "Function took " << duration.count() << " milliseconds." << std::endl;
 
 
-	std::cout << "处理成功，已处理" << counter << "个文件，请查看它们自己目录下的Result_Cuda文件夹\n";
+	std::cout << "处理成功，已处理" << argc - 1 << "个文件，请查看它们自己目录下的Result_Cuda文件夹\n";
 	std::cout << "结束，";
 	logCurrentTime();
 	if (index == 2 || index == 4)
@@ -791,6 +797,9 @@ int main(int argc, char* argv[])
 	{
 		cudaFree(frac);
 	}
+	for (int n = 0; n < groupCount; n++)
+		delete[] data[n];
+	delete[] data;
 	std::cout << "输入任意按键退出\n";
 	std::cin.get();
 	std::cin.get();
